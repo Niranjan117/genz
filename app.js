@@ -616,15 +616,37 @@ function extractPartnerId(payload) {
 }
 
 function getOfferFromPayload(payload) {
-  return payload.offer || payload.sdp || payload.data?.offer || payload;
+  if (payload.type && payload.sdp) {
+    return { type: payload.type, sdp: payload.sdp };
+  }
+  if (payload.offer && payload.offer.type && payload.offer.sdp) {
+    return payload.offer;
+  }
+  return payload;
 }
 
 function getAnswerFromPayload(payload) {
-  return payload.answer || payload.sdp || payload.data?.answer || payload;
+  if (payload.type && payload.sdp) {
+    return { type: payload.type, sdp: payload.sdp };
+  }
+  if (payload.answer && payload.answer.type && payload.answer.sdp) {
+    return payload.answer;
+  }
+  return payload;
 }
 
 function getIceCandidateFromPayload(payload) {
-  return payload.candidate || payload.ice || payload.data?.candidate || null;
+  if (payload.candidate && payload.sdpMid !== undefined && payload.sdpMLineIndex !== undefined) {
+    return {
+      candidate: payload.candidate,
+      sdpMid: payload.sdpMid,
+      sdpMLineIndex: payload.sdpMLineIndex
+    };
+  }
+  if (typeof payload.candidate === 'object' && payload.candidate.candidate) {
+    return payload.candidate;
+  }
+  return null;
 }
 
 function clearCallTimers() {
@@ -665,7 +687,8 @@ async function sendOfferToPartner(reason) {
   await pc.setLocalDescription(offer);
   emit("call:offer", {
     targetUserId: partnerId,
-    offer,
+    type: offer.type,
+    sdp: offer.sdp,
   });
 
   state.activeCall.offerSent = true;
@@ -749,7 +772,9 @@ async function createPeerConnection(callType) {
     log("Sending ICE candidate", { type: event.candidate.type });
     emit("call:ice", {
       targetUserId: state.activeCall.partnerUserId,
-      candidate: event.candidate,
+      candidate: event.candidate.candidate,
+      sdpMid: event.candidate.sdpMid,
+      sdpMLineIndex: event.candidate.sdpMLineIndex,
     });
   };
 
@@ -981,7 +1006,8 @@ async function onCallOffer(payload) {
 
     emit("call:answer", {
       targetUserId: partnerId,
-      answer,
+      type: answer.type,
+      sdp: answer.sdp,
     });
     setMeta(dom.callMeta, "Call: received offer, sent answer");
   } catch (error) {
