@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gen-Z Realtime Test Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="bg-orb orb-1" aria-hidden="true"></div>
+    <div class="bg-orb orb-2" aria-hidden="true"></div>
+
+    <main class="app">
+      <header class="panel hero">
+        <h1>Gen-Z Realtime Test Console</h1>
+        <p>
+          Minimal Vercel-ready frontend to test auth, REST APIs, Socket chat,
+          unread sync, and WebRTC calling.
+        </p>
+      </header>
+
+      <section class="grid">
+        <article class="panel reveal">
+          <h2>1) Environment</h2>
+          <div class="field">
+            <label for="apiBaseUrl">API Base URL</label>
+            <input id="apiBaseUrl" placeholder="https://genztalkapp.com/api/v1" />
+          </div>
+          <div class="field">
+            <label for="socketUrl">Socket URL</label>
+            <input id="socketUrl" placeholder="https://genztalkapp.com" />
+          </div>
+          <button id="saveEnvBtn" class="btn">Save Environment</button>
+        </article>
+
+        <article class="panel reveal">
+          <h2>2) Login</h2>
+          <div class="field">
+            <label for="mobileNumber">Mobile Number</label>
+            <input id="mobileNumber" placeholder="7668564061" />
+          </div>
+          <div class="field">
+            <label for="password">Password</label>
+            <input id="password" type="password" placeholder="Enter password" />
+          </div>
+          <div class="actions">
+            <button id="loginBtn" class="btn">Login</button>
+            <button id="logoutBtn" class="btn btn-secondary">Logout</button>
+          </div>
+          <label class="check-row" for="autoModeEnabled">
+            <input id="autoModeEnabled" type="checkbox" checked />
+            Auto Mode after login (online + socket + target discovery)
+          </label>
+          <p class="meta" id="authMeta">Not logged in</p>
+          <p class="meta" id="autoMeta">Auto mode ready</p>
+        </article>
+
+        <article class="panel reveal">
+          <h2>3) Socket Connection</h2>
+          <div class="actions">
+            <button id="socketConnectBtn" class="btn">Connect Socket</button>
+            <button id="socketDisconnectBtn" class="btn btn-secondary">Disconnect</button>
+          </div>
+          <p class="meta" id="socketMeta">Socket: disconnected</p>
+          <div class="badge-grid">
+            <div>
+              <span>Chat</span>
+              <strong id="badgeChat">0</strong>
+            </div>
+            <div>
+              <span>Notifications</span>
+              <strong id="badgeNotif">0</strong>
+            </div>
+            <div>
+              <span>Missed Calls</span>
+              <strong id="badgeMissed">0</strong>
+            </div>
+            <div>
+              <span>Total</span>
+              <strong id="badgeTotal">0</strong>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel reveal wide">
+          <h2>4) API Tester</h2>
+          <div class="api-grid">
+            <div class="field">
+              <label for="apiMethod">Method</label>
+              <select id="apiMethod">
+                <option>GET</option>
+                <option>POST</option>
+                <option>PATCH</option>
+                <option>PUT</option>
+                <option>DELETE</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="apiPath">Path</label>
+              <input id="apiPath" placeholder="/user/profile/40" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="apiBody">JSON Body</label>
+            <textarea id="apiBody" rows="6" placeholder='{"status":"online"}'></textarea>
+          </div>
+
+          <div class="actions wrap">
+            <button id="runApiBtn" class="btn">Run Request</button>
+            <button class="btn btn-secondary quick-api" data-method="PATCH" data-path="/user/fcm-token" data-body='{"fcm_token":"WEB_TEST_TOKEN"}'>Quick: FCM Token</button>
+            <button class="btn btn-secondary quick-api" data-method="POST" data-path="/user/availability" data-body='{"status":"online"}'>Quick: Set Online</button>
+            <button class="btn btn-secondary quick-api" data-method="GET" data-path="/membership/my" data-body="">Quick: Membership</button>
+            <button class="btn btn-secondary quick-api" data-method="GET" data-path="/notification" data-body="">Quick: Notifications</button>
+          </div>
+
+          <pre id="apiResult" class="output"></pre>
+        </article>
+
+        <article class="panel reveal wide">
+          <h2>5) People & Presence</h2>
+          <div class="api-grid">
+            <div class="field">
+              <label for="profileUserId">Profile User ID (int)</label>
+              <input id="profileUserId" placeholder="43" />
+            </div>
+            <div class="field">
+              <label for="availabilitySelect">Set My Availability</label>
+              <select id="availabilitySelect">
+                <option value="online">online</option>
+                <option value="offline">offline</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="actions wrap">
+            <button id="fetchProfileBtn" class="btn">Fetch Profile</button>
+            <button id="fetchFavsBtn" class="btn btn-secondary">Fetch Fav Creators</button>
+            <button id="setAvailabilityBtn" class="btn btn-secondary">Set My Availability</button>
+            <button id="autoDiscoverBtn" class="btn btn-secondary">Auto Discover IDs</button>
+          </div>
+
+          <pre id="presenceResult" class="output"></pre>
+        </article>
+
+        <article class="panel reveal wide">
+          <h2>6) Chat</h2>
+          <div class="api-grid">
+            <div class="field">
+              <label for="chatReceiverId">Receiver User ID (int)</label>
+              <input id="chatReceiverId" placeholder="43" />
+            </div>
+            <div class="field">
+              <label for="chatType">Type</label>
+              <select id="chatType">
+                <option value="text">text</option>
+                <option value="image">image</option>
+                <option value="video">video</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="chatMessage">Message</label>
+            <input id="chatMessage" placeholder="Hello from web tester" />
+          </div>
+
+          <div class="actions">
+            <button id="sendChatBtn" class="btn">Send Message</button>
+            <button id="markReadBtn" class="btn btn-secondary">Emit Read Receipt</button>
+          </div>
+
+          <ul id="chatTimeline" class="timeline"></ul>
+        </article>
+
+        <article class="panel reveal wide">
+          <h2>7) Comments & Replies</h2>
+          <div class="api-grid">
+            <div class="field">
+              <label for="postId">Post ID (int)</label>
+              <input id="postId" placeholder="100" />
+            </div>
+            <div class="field">
+              <label for="commentId">Comment ID (int)</label>
+              <input id="commentId" placeholder="37" />
+            </div>
+          </div>
+
+          <div class="api-grid">
+            <div class="field">
+              <label for="parentCommentId">Parent Comment ID (optional)</label>
+              <input id="parentCommentId" placeholder="Leave empty for root comment" />
+            </div>
+            <div class="field">
+              <label for="commentContent">Comment Content</label>
+              <input id="commentContent" placeholder="Testing comment from web app" />
+            </div>
+          </div>
+
+          <div class="actions wrap">
+            <button id="createCommentBtn" class="btn">Create Comment / Reply</button>
+            <button id="likeCommentBtn" class="btn btn-secondary">Like Comment</button>
+            <button id="fetchRepliesBtn" class="btn btn-secondary">Fetch Replies</button>
+            <button id="autoFillCommentIdsBtn" class="btn btn-secondary">Auto Fill Comment/Post IDs</button>
+          </div>
+
+          <pre id="commentResult" class="output"></pre>
+        </article>
+
+        <article class="panel reveal wide">
+          <h2>8) Calling (WebRTC + Socket Signaling)</h2>
+          <p class="meta">Quick mode: Login once, enter target user ID, click setup, then start voice/video.</p>
+          <div class="api-grid">
+            <div class="field">
+              <label for="callTargetId">Target User ID (int)</label>
+              <input id="callTargetId" placeholder="43" />
+            </div>
+            <div class="field">
+              <label for="callType">Default Call Type</label>
+              <select id="callType">
+                <option value="voice">voice</option>
+                <option value="video">video</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="actions wrap">
+            <button id="quickSetupCallBtn" class="btn">Setup For Calling</button>
+            <button id="startVoiceCallBtn" class="btn btn-secondary">Start Voice Call</button>
+            <button id="startVideoCallBtn" class="btn btn-secondary">Start Video Call</button>
+            <button id="startCallBtn" class="btn">Start Using Default Type</button>
+            <button id="endCallBtn" class="btn btn-danger">End Call</button>
+          </div>
+          <label class="check-row" for="autoAcceptCalls">
+            <input id="autoAcceptCalls" type="checkbox" />
+            Auto accept incoming calls
+          </label>
+
+          <div id="incomingCallBox" class="incoming hidden">
+            <p id="incomingText">Incoming call...</p>
+            <div class="actions">
+              <button id="acceptCallBtn" class="btn">Accept</button>
+              <button id="rejectCallBtn" class="btn btn-danger">Reject</button>
+            </div>
+          </div>
+
+          <p class="meta" id="callMeta">Call: idle</p>
+          <div class="media-grid">
+            <div>
+              <h3>Local</h3>
+              <video id="localVideo" autoplay muted playsinline></video>
+            </div>
+            <div>
+              <h3>Remote</h3>
+              <video id="remoteVideo" autoplay playsinline></video>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel reveal wide">
+          <h2>9) Event Log</h2>
+          <div class="actions">
+            <button id="clearLogBtn" class="btn btn-secondary">Clear Log</button>
+          </div>
+          <pre id="eventLog" class="output log"></pre>
+        </article>
+      </section>
+    </main>
+
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js" crossorigin="anonymous"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

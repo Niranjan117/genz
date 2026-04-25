@@ -1,0 +1,152 @@
+GEN-Z API COMPLETE TECHNICAL REFERENCE
+
+BASE CONFIGURATION
+- Base URL: https://genztalkapp.com/api/v1
+- Auth Header: Authorization: Bearer <TOKEN> (Required for all except login)
+- Content-Type: application/json
+- IDs: All IDs must be sent as INTEGERS (e.g. 40, not "40")
+- MEDIA: Images/Videos are served as absolute URLs (starting with https://)
+- TOKEN: Valid for 7 days. If 401 occurs, user must re-login.
+
+AUTHENTICATION
+Method: POST
+URL: https://genztalkapp.com/api/v1/auth/login-password
+Description: Main login endpoint. Use this to get the JWT token needed for all other requests.
+Body: { "mobile_number": "7668564061", "password": "12345678" }
+Example Response:
+{
+    "success": true,
+    "message": "Login successful",
+    "token": "eyJhbGciOi...",
+    "user": {
+        "id": 40,
+        "mobile_number": "7668564061",
+        "full_name": "praneet",
+        "username": "paaji",
+        "is_fav": 1,
+        "availability_status": "offline",
+        "avatar_url": null,
+        "banner_url": null
+    }
+}
+
+USER & SETTINGS
+Method: PATCH
+URL: https://genztalkapp.com/api/v1/user/fcm-token
+Description: Registers the device for push notifications. Mandatory for Call Alerts and Like Notifications.
+Body: { "fcm_token": "DEVICE_TOKEN_STRING" }
+Note: Critical for push notifications.
+
+Method: POST
+URL: https://genztalkapp.com/api/v1/user/availability
+Description: Toggles your status between "online" (visible for calls) and "offline".
+Body: { "status": "online" | "offline" }
+
+Method: GET
+URL: https://genztalkapp.com/api/v1/user/profile/:id
+Description: Gets the full details of any user. Used to show the profile screen in the app.
+Note: Response includes "is_on_waitlist" (boolean) and "is_fav" (integer).
+
+Method: GET
+URL: https://genztalkapp.com/api/v1/user/favs
+URL: https://genztalkapp.com/api/v1/user/search/fav
+Description: Fetches the list of "Fav" creators. Use this for the home feed or search results.
+Note: Response includes "is_on_waitlist" flag to show "Waiting..." in UI.
+
+MEMBERSHIP BUNDLES
+Method: GET
+URL: https://genztalkapp.com/api/v1/membership/bundles
+Description: Lists all available premium packs that a user can buy with coins.
+Example Response:
+{
+    "success": true,
+    "bundles": [
+        { "id": 1, "title": "Starter Pack", "description": "7 days of premium access", "price_coins": "99.00", "duration_days": 7, "is_active": 1 },
+        { "id": 2, "title": "Gold Monthly", "description": "30 days of unlimited access", "price_coins": "499.00", "duration_days": 30, "is_active": 1 }
+    ]
+}
+
+Method: POST
+URL: https://genztalkapp.com/api/v1/membership/purchase
+Description: Buys a specific membership pack. Deducts coins from the user wallet.
+Body: { "bundle_id": 1 }
+Example Response:
+{
+    "success": true,
+    "message": "Successfully purchased Starter Pack",
+    "expiry_date": "2026-04-28T15:40:08.396Z"
+}
+
+Method: GET
+URL: https://genztalkapp.com/api/v1/membership/my
+Description: Checks your current subscription status. Tells you if you are a premium member or not.
+Example Response:
+{
+    "success": true,
+    "has_membership": true,
+    "status": "active",
+    "membership": {
+        "id": 1, "user_id": 40, "bundle_id": 1, "start_date": "2026-04-21 21:10:08", "expiry_date": "2026-04-28 21:10:08", "is_active": 1, "title": "Starter Pack", "description": "7 days of premium access", "duration_days": 7
+    }
+}
+Note: "has_membership" is boolean. "status" can be "active", "expired", or "none".
+Source: "user_memberships" table.
+
+POSTS & SOCIAL
+Method: POST
+URL: https://genztalkapp.com/api/v1/post/comment/:comment_id/like
+Description: Likes a specific comment. Alerts the comment owner with a notification.
+Response: { "message": "Comment liked", "is_liked": true }
+Note: Get :comment_id from "comments" table.
+
+Method: GET
+URL: https://genztalkapp.com/api/v1/post/comment/:comment_id/replies
+Description: Fetches every single reply for a comment. 
+Response: { "replies": [ { "id": 37, "content": "This is a reply!", "likes_count": 0, "is_liked": false } ] }
+Note: Returns ALL replies for a comment. No limit.
+
+Method: POST
+URL: https://genztalkapp.com/api/v1/post/:post_id/comment
+Description: Adds a new comment or a reply to a post. Set parent_id to reply.
+Body: { "content": "string", "parent_id": integer | null }
+Note: Get :post_id from "posts" table. If parent_id is used, it's a reply.
+
+CREATOR WAITLIST
+Method: GET
+URL: https://genztalkapp.com/api/v1/user/waitlist/my-waiters
+Description: Creators use this to see a list of users who are waiting for them to be free.
+Example Response:
+{
+  "success": true,
+  "count": 1,
+  "waitlist": [
+    {
+      "waitlist_id": 45, "user_id": 12, "full_name": "John Doe", "username": "johndoe", "joined_at": "2026-04-20T15:30:00Z", "is_on_waitlist": true 
+    }
+  ]
+}
+
+Method: POST
+URL: https://genztalkapp.com/api/v1/user/waitlist/notify
+Description: Sends a "Creator is Now Free" alert to a specific waiting user.
+Body: { "user_id": 12 }
+Note: "user_id" is the ID of the person waiting for you. Get from "creator_waitlist" table.
+
+NOTIFICATIONS (ACTIVITY)
+Method: GET
+URL: https://genztalkapp.com/api/v1/notification
+Description: Fetches your activity feed (Likes, Comments, Waitlist Alerts).
+Example Item: { "type": "comment_like", "reference_id": 23, "sender_name": "Ashish" }
+Note: "reference_id" tells the app which Post or Comment triggered the alert.
+
+REAL-TIME CALLS (SOCKET.IO)
+Events:
+- "call:start": Initial signal to ring a user.
+- "call:incoming": Emitted to receiver when someone calls.
+- "call:accepted": Emitted to caller when receiver accepts.
+- "call:ice": Negotiate network paths for the call (Relay).
+- "call:ended": Emitted to BOTH when a call finishes (timeout, hangup, or insufficient balance).
+- "sync_unread_counts": Emitted to user when badges (Chat, Notif, Missed Calls) change.
+
+Note: Server performs billing pulses every 30-60s. IDs must be integers.
+No manual timestamps are sent; server uses database time.
