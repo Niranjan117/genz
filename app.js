@@ -93,7 +93,12 @@ const dom = {
 };
 
 const ICE_SERVERS = {
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun2.l.google.com:19302" }
+  ],
+  iceCandidatePoolSize: 10
 };
 
 function log(message, data) {
@@ -669,13 +674,44 @@ async function sendOfferToPartner(reason) {
 
 async function ensureMedia(callType) {
   if (state.localStream) return state.localStream;
+  
   const constraints =
     callType === "video"
-      ? { audio: true, video: { facingMode: "user" } }
-      : { audio: true, video: false };
-  state.localStream = await navigator.mediaDevices.getUserMedia(constraints);
-  dom.localVideo.srcObject = state.localStream;
-  return state.localStream;
+      ? { 
+          audio: { 
+            echoCancellation: true, 
+            noiseSuppression: true,
+            autoGainControl: true 
+          }, 
+          video: { 
+            facingMode: "user",
+            width: { ideal: 640 },
+            height: { ideal: 480 }
+          } 
+        }
+      : { 
+          audio: { 
+            echoCancellation: true, 
+            noiseSuppression: true,
+            autoGainControl: true 
+          }, 
+          video: false 
+        };
+  
+  try {
+    state.localStream = await navigator.mediaDevices.getUserMedia(constraints);
+    dom.localVideo.srcObject = state.localStream;
+    dom.localVideo.muted = true;
+    await dom.localVideo.play();
+    log("Local media acquired", { 
+      audio: state.localStream.getAudioTracks().length,
+      video: state.localStream.getVideoTracks().length
+    });
+    return state.localStream;
+  } catch (error) {
+    log("Media access failed", { message: error.message });
+    throw new Error(`Cannot access camera/microphone: ${error.message}`);
+  }
 }
 
 async function createPeerConnection(callType) {
@@ -684,28 +720,57 @@ async function createPeerConnection(callType) {
   const stream = await ensureMedia(callType);
   const pc = new RTCPeerConnection(ICE_SERVERS);
 
-  stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+  stream.getTracks().forEach((track) => {
+    pc.addTrack(track, stream);
+    log("Track added to peer connection", { kind: track.kind, enabled: track.enabled });
+  });
 
   state.remoteStream = new MediaStream();
   dom.remoteVideo.srcObject = state.remoteStream;
 
   pc.ontrack = (event) => {
+    log("ontrack event", { streamId: event.streams[0]?.id });
     event.streams[0].getTracks().forEach((track) => {
       state.remoteStream.addTrack(track);
     });
+    dom.remoteVideo.srcObject = state.remoteStream;
+    dom.remoteVideo.play().catch(err => log("remote video play error", { message: err.message }));
   };
 
   pc.onicecandidate = (event) => {
-    if (!event.candidate || !state.activeCall?.partnerUserId) return;
+    if (!event.candidate) {
+      log("ICE gathering complete");
+      return;
+    }
+    if (!state.activeCall?.partnerUserId) {
+      log("ICE candidate skipped - no partner", { candidate: event.candidate.candidate });
+      return;
+    }
+    log("Sending ICE candidate", { type: event.candidate.type });
     emit("call:ice", {
       targetUserId: state.activeCall.partnerUserId,
       candidate: event.candidate,
     });
   };
 
+  pc.onicegatheringstatechange = () => {
+    log("ICE gathering state", { state: pc.iceGatheringState });
+  };
+
+  pc.oniceconnectionstatechange = () => {
+    log("ICE connection state", { state: pc.iceConnectionState });
+    setMeta(dom.callMeta, `Call: ${pc.iceConnectionState}`);
+    if (["failed", "closed"].includes(pc.iceConnectionState)) {
+      endCallCleanup(`ICE connection ${pc.iceConnectionState}`);
+    }
+  };
+
   pc.onconnectionstatechange = () => {
-    setMeta(dom.callMeta, `Call: ${pc.connectionState}`);
-    if (["failed", "closed", "disconnected"].includes(pc.connectionState)) {
+    log("Connection state", { state: pc.connectionState });
+    if (pc.connectionState === "connected") {
+      setMeta(dom.callMeta, "Call: connected ✓");
+    }
+    if (["failed", "closed"].includes(pc.connectionState)) {
       endCallCleanup(`Peer connection ${pc.connectionState}`);
     }
   };
@@ -899,16 +964,30 @@ async function onCallOffer(payload) {
   }
 
   const offer = getOfferFromPayload(payload);
-  const pc = await createPeerConnection(callType);
-  await pc.setRemoteDescription(new RTCSessionDescription(offer));
-  const answer = await pc.createAnswer();
-  await pc.setLocalDescription(answer);
+  if (!offer || !offer.type || !offer.sdp) {
+    log("call:offer invalid format", { offer });
+    return;
+  }
 
-  emit("call:answer", {
-    targetUserId: partnerId,
-    answer,
-  });
-  setMeta(dom.callMeta, "Call: received offer, sent answer");
+  const pc = await createPeerConnection(callType);
+  
+  try {
+    await pc.setRemoteDescription(new RTCSessionDescription(offer));
+    log("Remote description set (offer)");
+    
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    log("Local description set (answer)");
+
+    emit("call:answer", {
+      targetUserId: partnerId,
+      answer,
+    });
+    setMeta(dom.callMeta, "Call: received offer, sent answer");
+  } catch (error) {
+    log("call:offer processing failed", { message: error.message });
+    endCallCleanup("Failed to process offer");
+  }
 }
 
 async function onCallAnswer(payload) {
@@ -917,18 +996,44 @@ async function onCallAnswer(payload) {
     log("call:answer ignored - peer not ready", payload);
     return;
   }
+  
   const answer = getAnswerFromPayload(payload);
-  await state.pc.setRemoteDescription(new RTCSessionDescription(answer));
-  setMeta(dom.callMeta, "Call: answer received, media connecting");
+  if (!answer || !answer.type || !answer.sdp) {
+    log("call:answer invalid format", { answer });
+    return;
+  }
+
+  try {
+    await state.pc.setRemoteDescription(new RTCSessionDescription(answer));
+    log("Remote description set (answer)");
+    setMeta(dom.callMeta, "Call: answer received, media connecting");
+  } catch (error) {
+    log("call:answer processing failed", { message: error.message });
+    endCallCleanup("Failed to process answer");
+  }
 }
 
 async function onCallIce(payload) {
   const candidate = getIceCandidateFromPayload(payload);
-  if (!candidate || !state.pc) {
+  if (!candidate) {
+    log("call:ice no candidate in payload", payload);
     return;
   }
+  
+  if (!state.pc) {
+    log("call:ice ignored - no peer connection");
+    return;
+  }
+
+  if (!state.pc.remoteDescription) {
+    log("call:ice waiting for remote description");
+    setTimeout(() => onCallIce(payload), 100);
+    return;
+  }
+
   try {
     await state.pc.addIceCandidate(new RTCIceCandidate(candidate));
+    log("ICE candidate added", { type: candidate.type || "unknown" });
   } catch (error) {
     log("call:ice add candidate failed", { message: error.message });
   }
