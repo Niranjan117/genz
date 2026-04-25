@@ -12,6 +12,8 @@ const state = {
   activeCall: null,
   incomingCall: null,
   pc: null,
+  callerOfferTimeoutId: null,
+  receiverOfferRetryTimeoutId: null,
   localStream: null,
   remoteStream: null,
   startedAtMs: 0,
@@ -556,6 +558,7 @@ function ensureSocket() {
     log("call:initiated", payload);
     setMeta(dom.callMeta, "Call: ringing target");
   });
+  socket.on("call:accept", onCallAccepted);
   socket.on("call:accepted", onCallAccepted);
   socket.on("call:offer", onCallOffer);
   socket.on("call:answer", onCallAnswer);
@@ -592,6 +595,8 @@ function extractPartnerId(payload) {
     "targetUserId",
     "receiverId",
     "callerId",
+    "acceptedBy",
+    "endedBy",
     "fromUserId",
     "senderId",
     "userId",
@@ -615,6 +620,51 @@ function getAnswerFromPayload(payload) {
 
 function getIceCandidateFromPayload(payload) {
   return payload.candidate || payload.ice || payload.data?.candidate || null;
+}
+
+function clearCallTimers() {
+  if (state.callerOfferTimeoutId) {
+    clearTimeout(state.callerOfferTimeoutId);
+    state.callerOfferTimeoutId = null;
+  }
+
+  if (state.receiverOfferRetryTimeoutId) {
+    clearTimeout(state.receiverOfferRetryTimeoutId);
+    state.receiverOfferRetryTimeoutId = null;
+  }
+}
+
+async function sendOfferToPartner(reason) {
+  if (!state.activeCall || state.activeCall.role !== "caller") {
+    return;
+  }
+
+  if (state.activeCall.offerSent) {
+    return;
+  }
+
+  const partnerId = state.activeCall.partnerUserId;
+  if (!partnerId) {
+    log("offer skipped - missing partner id", { reason });
+    return;
+  }
+
+  const pc = await createPeerConnection(state.activeCall.callType || "voice");
+
+  if (pc.localDescription) {
+    state.activeCall.offerSent = true;
+    return;
+  }
+
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  emit("call:offer", {
+    targetUserId: partnerId,
+    offer,
+  });
+
+  state.activeCall.offerSent = true;
+  setMeta(dom.callMeta, `Call: offer sent (${reason})`);
 }
 
 async function ensureMedia(callType) {
@@ -687,11 +737,22 @@ async function startCall() {
     role: "caller",
     partnerUserId: targetUserId,
     callType,
+    offerSent: false,
   };
   state.startedAtMs = Date.now();
 
   setMeta(dom.callMeta, `Call: initiating ${callType} to user ${targetUserId}`);
   emit("call:start", { targetUserId, callType, source: "gt" });
+
+  if (state.callerOfferTimeoutId) {
+    clearTimeout(state.callerOfferTimeoutId);
+  }
+
+  state.callerOfferTimeoutId = setTimeout(() => {
+    sendOfferToPartner("fallback-timeout").catch((error) => {
+      log("offer fallback failed", { message: error.message });
+    });
+  }, 4500);
 }
 
 async function quickSetupForCalling() {
@@ -749,11 +810,22 @@ async function acceptCall() {
     role: "receiver",
     partnerUserId: callerId,
     callType,
+    offerSent: false,
   };
   state.startedAtMs = Date.now();
 
   emit("call:accept", { callerId });
   await createPeerConnection(callType);
+
+  if (state.receiverOfferRetryTimeoutId) {
+    clearTimeout(state.receiverOfferRetryTimeoutId);
+  }
+
+  state.receiverOfferRetryTimeoutId = setTimeout(() => {
+    emit("call:accept", { callerId });
+    log("accept retry sent", { callerId });
+  }, 5000);
+
   resetIncomingCallUI();
   setMeta(dom.callMeta, `Call: accepted, waiting for offer from ${callerId}`);
 }
@@ -770,6 +842,10 @@ function rejectCall() {
 
 async function onCallAccepted(payload) {
   log("call:accepted", payload);
+  if (state.callerOfferTimeoutId) {
+    clearTimeout(state.callerOfferTimeoutId);
+    state.callerOfferTimeoutId = null;
+  }
 
   const partnerId = extractPartnerId(payload) || state.activeCall?.partnerUserId;
   if (!state.activeCall || !partnerId) {
@@ -781,19 +857,17 @@ async function onCallAccepted(payload) {
 
   // Caller creates the offer after receiver accepts.
   if (state.activeCall.role === "caller") {
-    const pc = await createPeerConnection(state.activeCall.callType || "voice");
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    emit("call:offer", {
-      targetUserId: partnerId,
-      offer,
-    });
-    setMeta(dom.callMeta, "Call: offer sent");
+    await sendOfferToPartner("accepted-event");
   }
 }
 
 async function onCallOffer(payload) {
   log("call:offer", payload);
+
+  if (state.receiverOfferRetryTimeoutId) {
+    clearTimeout(state.receiverOfferRetryTimeoutId);
+    state.receiverOfferRetryTimeoutId = null;
+  }
 
   const partnerId = extractPartnerId(payload) || state.activeCall?.partnerUserId;
   const callType =
@@ -877,6 +951,8 @@ function stopMedia() {
 }
 
 function endCallCleanup(reason) {
+  clearCallTimers();
+
   if (state.pc) {
     state.pc.onicecandidate = null;
     state.pc.ontrack = null;
