@@ -847,7 +847,19 @@ async function onCallAccepted(payload) {
     state.callerOfferTimeoutId = null;
   }
 
-  const partnerId = extractPartnerId(payload) || state.activeCall?.partnerUserId;
+  const extractedPartnerId = extractPartnerId(payload);
+  const partnerId =
+    extractedPartnerId && extractedPartnerId !== state.user?.id
+      ? extractedPartnerId
+      : state.activeCall?.partnerUserId;
+
+  if (extractedPartnerId && extractedPartnerId === state.user?.id) {
+    log("call:accepted payload had self id, keeping existing partner", {
+      extractedPartnerId,
+      activePartner: state.activeCall?.partnerUserId,
+    });
+  }
+
   if (!state.activeCall || !partnerId) {
     log("call:accepted ignored - no active call context", payload);
     return;
