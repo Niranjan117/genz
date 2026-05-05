@@ -1,7 +1,7 @@
 /* global io */
 
 const state = {
-  apiBaseUrl: "https://genztalkapp.com/api/v1",
+  apiBaseUrl: "https://genztalkapp.com/api/v2",
   socketUrl: "https://genztalkapp.com",
   token: "",
   user: null,
